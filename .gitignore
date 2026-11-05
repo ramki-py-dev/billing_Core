@@ -1,39 +1,8 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-*.egg
-
-# Virtual environments
-venv/
-.venv/
-env/
-ENV/
-
-# Environment variables & secrets (never commit secrets)
-.env
-.env.local
-.env.*.local
-*.secret
-
-# Testing & coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# IDE & OS files
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# SQLite local test files
+﻿.env
 *.db
-*.sqlite3
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
