@@ -65,6 +65,32 @@ app = FastAPI()
 app.include_router(create_router(), prefix="/api/v1")
 ```
 
+### Recording a Payment (any host app)
+
+Each app sends its own name with the request, so many apps can share one `billing_db`.
+billing-core creates the invoice if it doesn't have it yet, fills in the details and marks it `paid`.
+There is no payment gateway yet: the call itself marks the bill paid.
+
+```python
+from billing_core import database, record_payment
+
+database.configure("mysql+pymysql://user:password@localhost:3306/billing_db")  # or BILLING_DATABASE_URL
+
+record_payment(
+    app_name="preventive-care",
+    invoice_number="INV-000093",      # the app's invoice number
+    source_invoice_id="93",           # the app's own invoice id
+    customer_id="7",                  # e.g. patient id
+    items=[{"description": "CBC", "quantity": 1, "unit_price": "200.00"}],
+    payment_mode="Cash",
+    payment_reference=None,
+    reference_type="lab_order",
+)
+```
+
+- Sending the same invoice again updates its details and keeps the first `paid_at`.
+- Older `billing_db` tables get the new nullable columns (`source_invoice_id`, `payment_mode`, `payment_reference`) added automatically on first use.
+
 ### App Name Resolution Order
 
 When `init()` is called, the app name is resolved by:

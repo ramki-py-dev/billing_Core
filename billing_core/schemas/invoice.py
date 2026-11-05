@@ -41,6 +41,21 @@ class InvoiceCreate(BaseModel):
     items: list[InvoiceItemCreate] = []
 
 
+class PaymentRequest(BaseModel):
+    """A paid invoice sent by a host app. The app is named per request, so many apps share one billing_db."""
+
+    app_name: str
+    invoice_number: str
+    customer_id: str
+    items: list[InvoiceItemCreate] = []
+    source_invoice_id: Optional[str] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
+    reference_type: Optional[str] = None
+    due_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
 class InvoiceUpdate(BaseModel):
     notes: Optional[str] = None
     due_date: Optional[datetime] = None
@@ -58,6 +73,9 @@ class InvoiceResponse(BaseModel):
     total_amount: Decimal
     items: list[InvoiceItemResponse] = []
     notes: Optional[str] = None
+    source_invoice_id: Optional[str] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
     issued_at: datetime
     due_date: Optional[datetime] = None
     paid_at: Optional[datetime] = None

@@ -74,6 +74,10 @@ class Invoice(Base):
     total_amount = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     items = Column(JSON, default=list, nullable=False)
     notes = Column(Text, nullable=True)
+    # Payment details sent by the host app (record_payment); no gateway yet
+    source_invoice_id = Column(String(100), nullable=True)
+    payment_mode = Column(String(30), nullable=True)
+    payment_reference = Column(String(100), nullable=True)
     issued_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     due_date = Column(DateTime, nullable=True)
     paid_at = Column(DateTime, nullable=True)

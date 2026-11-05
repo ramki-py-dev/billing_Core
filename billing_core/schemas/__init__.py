@@ -4,5 +4,6 @@ from billing_core.schemas.invoice import (
     InvoiceResponse,
     InvoiceItemCreate,
     InvoiceItemResponse,
+    PaymentRequest,
 )
 

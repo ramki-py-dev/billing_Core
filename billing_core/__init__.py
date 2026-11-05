@@ -11,6 +11,7 @@ from billing_core.schemas.invoice import (
     InvoiceItemResponse,
     InvoiceResponse,
     InvoiceUpdate,
+    PaymentRequest,
 )
 from billing_core.services.invoice_service import InvoiceService
 from billing_core.sync import auto_sync_if_configured, sync_invoices
@@ -82,6 +83,36 @@ def init(
     return app
 
 
+def record_payment(
+    app_name: str,
+    invoice_number: str,
+    customer_id: str,
+    items: list | None = None,
+    **details,
+) -> InvoiceResponse:
+    """Record a paid invoice sent by a host app and return it.
+
+    Any app can call this with its own ``app_name``; billing_db only needs to be
+    configured (``BILLING_DATABASE_URL`` or ``database.configure(url)``).
+    ``details``: source_invoice_id, payment_mode, payment_reference,
+    reference_type, due_date, notes.
+    """
+    from billing_core import database
+    from billing_core.routes.invoice_routes import _invoice_to_response
+
+    data = PaymentRequest(
+        app_name=app_name,
+        invoice_number=invoice_number,
+        customer_id=customer_id,
+        items=items or [],
+        **details,
+    )
+    database.ensure_tables()
+    with database.SessionLocal() as session:
+        invoice = InvoiceService(session).record_payment(data)
+        return _invoice_to_response(invoice)
+
+
 __all__ = [
     "Base",
     "init",
@@ -94,6 +125,8 @@ __all__ = [
     "InvoiceResponse",
     "InvoiceItemCreate",
     "InvoiceItemResponse",
+    "PaymentRequest",
+    "record_payment",
     "InvoiceRepository",
     "InvoiceService",
     "create_router",

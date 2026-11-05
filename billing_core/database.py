@@ -136,6 +136,41 @@ def create_tables() -> None:
 
     eng = get_engine()
     Base.metadata.create_all(bind=eng)
+    add_missing_columns(eng, Base.metadata)
+
+
+_tables_ready_for = None
+
+
+def ensure_tables() -> None:
+    """create_tables() once per configured engine (record_payment works without init())."""
+    global _tables_ready_for
+    eng = get_engine()
+    if _tables_ready_for is not eng:
+        create_tables()
+        _tables_ready_for = eng
+
+
+def add_missing_columns(eng, metadata) -> None:
+    """Add nullable columns that newer versions introduced to tables that already exist.
+
+    create_all() never alters an existing table, so an older billing_db would
+    otherwise miss columns such as invoices.payment_mode.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(eng)
+    existing_tables = set(inspector.get_table_names())
+    with eng.begin() as conn:
+        for table in metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing or not column.nullable:
+                    continue
+                col_type = column.type.compile(dialect=eng.dialect)
+                conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type} NULL"))
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -3,12 +3,39 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, List, Optional
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from billing_core.database import get_current_app_id
 from billing_core.models.invoice import App, Invoice, InvoiceStatus
 from billing_core.repositories.invoice_repository import InvoiceRepository
-from billing_core.schemas.invoice import InvoiceCreate, InvoiceUpdate
+from billing_core.schemas.invoice import (
+    InvoiceCreate,
+    InvoiceItemCreate,
+    InvoiceUpdate,
+    PaymentRequest,
+)
+
+
+def _calculate_items(items: List[InvoiceItemCreate]) -> tuple[list[dict], Decimal]:
+    """Server-side line amounts (quantity * unit_price, rounded) and their total."""
+    calculated_items = []
+    total = Decimal("0.00")
+    for item in items:
+        desc = item.description or item.name
+        qty = Decimal(str(item.quantity))
+        price = Decimal(str(item.unit_price))
+        amt = (qty * price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total += amt
+        calculated_items.append(
+            {
+                "description": desc,
+                "quantity": str(qty),
+                "unit_price": str(price),
+                "amount": str(amt),
+            }
+        )
+    return calculated_items, total
 
 
 class InvoiceService:
@@ -80,22 +107,7 @@ class InvoiceService:
                 f"Invoice number '{data.invoice_number}' already exists for this app."
             )
 
-        calculated_items = []
-        total = Decimal("0.00")
-        for item in data.items:
-            desc = item.description or item.name
-            qty = Decimal(str(item.quantity))
-            price = Decimal(str(item.unit_price))
-            amt = (qty * price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            total += amt
-            calculated_items.append(
-                {
-                    "description": desc,
-                    "quantity": str(qty),
-                    "unit_price": str(price),
-                    "amount": str(amt),
-                }
-            )
+        calculated_items, total = _calculate_items(data.items)
 
         invoice = Invoice(
             app_id=repo.app_id,
@@ -178,6 +190,63 @@ class InvoiceService:
         invoice.status = InvoiceStatus.PAID
         invoice.paid_at = datetime.now(timezone.utc)
         return repo.update(invoice)
+
+    def _get_or_create_app(self, app_name: str) -> App:
+        from billing_core.database import normalize_app_name
+
+        norm_name = normalize_app_name(app_name)
+        app = self.db.query(App).filter(App.name == norm_name).first()
+        if app:
+            return app
+        try:
+            app = App(name=norm_name)
+            self.db.add(app)
+            self.db.commit()
+        except IntegrityError:
+            # another request registered the same app first
+            self.db.rollback()
+            app = self.db.query(App).filter(App.name == norm_name).one()
+        return app
+
+    def record_payment(self, data: PaymentRequest, _retried: bool = False) -> Invoice:
+        """Mark an invoice of ``data.app_name`` paid, creating it first if billing_db doesn't have it.
+
+        Every detail sent is written, also when the invoice already exists or is
+        already paid. A repeated call keeps the first ``paid_at``.
+        """
+        app = self._get_or_create_app(data.app_name)
+        repo = self._get_repo(app.id)
+        invoice = repo.get_by_invoice_number(data.invoice_number)
+        if invoice is None:
+            invoice = Invoice(
+                app_id=app.id,
+                app_name=app.name,
+                invoice_number=data.invoice_number,
+                status=InvoiceStatus.PENDING,
+            )
+            self.db.add(invoice)
+
+        invoice.customer_id = data.customer_id
+        if data.items:
+            invoice.items, invoice.total_amount = _calculate_items(data.items)
+        for field in ("source_invoice_id", "payment_mode", "payment_reference", "reference_type", "due_date", "notes"):
+            value = getattr(data, field)
+            if value is not None:
+                setattr(invoice, field, value)
+        invoice.status = InvoiceStatus.PAID
+        if invoice.paid_at is None:
+            invoice.paid_at = datetime.now(timezone.utc)
+
+        try:
+            self.db.commit()
+        except IntegrityError:
+            # created concurrently by another request: update that row instead
+            self.db.rollback()
+            if _retried:
+                raise
+            return self.record_payment(data, _retried=True)
+        self.db.refresh(invoice)
+        return invoice
 
     def cancel_invoice(
         self, invoice_id: UUID, app_id: UUID | None = None
